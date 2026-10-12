@@ -33,6 +33,7 @@ build/
 node_modules/
 web/dist/
 office-addin/dist/
+*.tsbuildinfo
 
 # Generated documents
 *.docx
