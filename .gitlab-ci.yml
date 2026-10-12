@@ -1,0 +1,175 @@
+# Analekh pipeline (design doc 22.5, Appendix F).
+# GitLab is the source of truth; green builds of main and release tags are mirrored to GitHub.
+#
+# Jobs that need infrastructure which does not exist yet run only once it is configured:
+#   deploy_staging / dast   -> STAGING_URL set and the self-hosted `india` runner registered
+#   deploy_production       -> PRODUCTION_URL set (release tags, manual approval)
+#   mirror_to_github        -> GITHUB_MIRROR_TOKEN / _USER / _REPO set (protected, masked)
+# Scanner template paths follow GitLab's documentation (checked October 2026).
+
+stages: [lint, test, build, scan, deploy-staging, dast, release, mirror]
+
+variables:
+  GIT_DEPTH: "0" # full history, required for the mirror push
+  UV_NO_SYNC: "1"
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  - template: Jobs/Container-Scanning.gitlab-ci.yml
+  - template: Security/DAST.gitlab-ci.yml
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never # avoid duplicate branch + MR pipelines
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+.py:
+  image: python:3.12-slim
+  cache:
+    key:
+      files: [requirements-dev.txt]
+    paths: [.uv-cache]
+  before_script:
+    - pip install --quiet uv
+    # uv.lock pins everything when present; until it is committed, the requirements files
+    # exported from it (Appendix G) give the same exact versions.
+    - |
+      if [ -f uv.lock ]; then
+        uv sync --frozen
+      else
+        uv venv && uv pip install -r requirements-dev.txt && uv pip install --no-deps -e .
+      fi
+
+lint:
+  extends: .py
+  stage: lint
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+    - uv run mypy analekh
+
+unit_and_integration:
+  extends: .py
+  stage: test
+  services:
+    - name: pgvector/pgvector:pg16
+      alias: postgres
+    - name: redis:7
+      alias: redis
+  variables:
+    POSTGRES_USER: app
+    POSTGRES_PASSWORD: app
+    POSTGRES_DB: analekh
+    DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/analekh
+    TEST_DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/analekh
+    REDIS_URL: redis://redis:6379/0
+  script:
+    - uv run alembic upgrade head
+    - uv run alembic check
+    - uv run pytest --junitxml=report.xml --cov=analekh --cov-report=term --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+web:
+  stage: test
+  image: node:24-alpine
+  cache:
+    key:
+      files: [web/package.json]
+    paths: [web/node_modules]
+  script:
+    - cd web
+    - if [ -f package-lock.json ]; then npm ci; else npm install; fi
+    - npm run lint
+    - npm test
+    - npm run build
+
+golden_set:
+  extends: .py
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - when: manual
+  allow_failure: true
+  script:
+    - uv run analekh golden-test --report golden.json
+  artifacts:
+    paths: [golden.json]
+
+build_image:
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+        docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+      fi
+
+container_scanning:
+  stage: scan
+  needs: [build_image]
+  variables:
+    CS_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+deploy_staging:
+  stage: deploy-staging
+  tags: [india] # self-hosted runner on the Indian VM
+  environment: { name: staging, url: $STAGING_URL }
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $STAGING_URL
+  script:
+    - IMAGE_TAG=$CI_COMMIT_SHA docker compose -f deploy/compose.staging.yml pull
+    - IMAGE_TAG=$CI_COMMIT_SHA docker compose -f deploy/compose.staging.yml up -d
+
+dast:
+  stage: dast
+  variables:
+    DAST_TARGET_URL: $STAGING_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $STAGING_URL
+
+deploy_production:
+  stage: release
+  tags: [india]
+  environment: { name: production, url: $PRODUCTION_URL }
+  rules:
+    - if: $CI_COMMIT_TAG && $PRODUCTION_URL
+      when: manual
+  script:
+    - IMAGE_TAG=$CI_COMMIT_SHA docker compose -f deploy/compose.production.yml pull
+    - IMAGE_TAG=$CI_COMMIT_SHA docker compose -f deploy/compose.production.yml up -d
+
+mirror_to_github:
+  stage: mirror
+  image: alpine/git:latest
+  resource_group: github-mirror
+  rules:
+    - if: $GITHUB_MIRROR_TOKEN == null || $GITHUB_MIRROR_TOKEN == ""
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  script:
+    - REMOTE="https://${GITHUB_MIRROR_USER}:${GITHUB_MIRROR_TOKEN}@github.com/${GITHUB_MIRROR_REPO}.git"
+    # No force flag: any divergence on GitHub fails the job instead of overwriting history.
+    - if [ -n "$CI_COMMIT_TAG" ]; then git push "$REMOTE" "refs/tags/$CI_COMMIT_TAG"; else git push "$REMOTE" "HEAD:refs/heads/main"; fi

@@ -1,10 +1,12 @@
-# Example mapping (design doc Appendix B). Copy per model; rows are matched by label.
-model: example_quarterly_v1
-company: DEMOFIN
+# Example template mapping (design doc v1.0.1, Appendix B). Suggested by the workbook
+# understanding engine, confirmed once per template; rows are matched by label.
+template: nbfc_quarterly
+version: 3
+sectors: [NBFC, Gold Finance]
 basis: consolidated
 period_axis:
   sheet: Data
-  header_row_label: "Period"   # e.g. Q1FY27
+  header_row_label: "Period"   # e.g. Q2FY27
   flag_row_label: "A/E"        # A = actual, E = estimate
 units:
   default_transform: "div:10000000"   # INR -> INR crore
@@ -12,21 +14,30 @@ rows:
   - source: xbrl:RevenueFromOperations
     sheet: Data
     row_label: "Revenue from operations"
+    confidence: 0.98
   - source: xbrl:OtherIncome
     sheet: Data
     row_label: "Other income"
+    confidence: 0.98
   - source: xbrl:FinanceCosts
     sheet: Data
     row_label: "Finance costs"
+    confidence: 0.99
   - source: xbrl:ProfitLossForPeriod
     sheet: Data
     row_label: "PAT"
+    confidence: 0.95
   - source: kpi:gold_loan_aum
     sheet: Data
     row_label: "Gold loan AUM"
     transform: none    # already in INR crore
-drivers:   # used for assumption suggestions
+    confidence: 0.90
+drivers:
   - name: loan_yield
     actual_row_label: "Yield on loans"
-    forecast_sheet: Model
+    forecast_sheet: Drivers
     forecast_row_label: "Yield assumption"
+checks:
+  - sheet: Checks
+    cell_label: "Balance sheet difference"
+    expect: 0

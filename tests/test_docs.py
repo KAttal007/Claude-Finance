@@ -2,11 +2,11 @@ from decimal import Decimal
 
 import pymupdf
 
-from t2r.docs.chunking import chunk_pages
-from t2r.docs.classifier import select_pages
-from t2r.docs.extract import extraction_schema, map_back
-from t2r.docs.pdf import PageText, read_pages, subset
-from t2r.docs.transcripts import parse_turns
+from analekh.docs.chunking import chunk_pages
+from analekh.docs.classifier import select_pages
+from analekh.docs.extract import extraction_schema, map_back
+from analekh.docs.pdf import PageText, read_pages, subset
+from analekh.docs.transcripts import parse_turns
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -46,7 +46,7 @@ def test_classifier_selects_kpi_and_statement_pages():
 
 
 def test_map_back_translates_pages_and_checks_quotes():
-    from t2r.docs.classifier import PageScore
+    from analekh.docs.classifier import PageScore
 
     selected = [PageScore(7, "kpi_table", 5), PageScore(12, "asset_quality", 4)]
     pages = {

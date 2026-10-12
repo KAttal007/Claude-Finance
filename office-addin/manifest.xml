@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Analekh Excel task pane (design doc 13.3, 19.2; Phase 5). Sideload for development with
+     `npm run start`; store review is needed for distribution. -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:type="TaskPaneApp">
+  <Id>3b0c6f0e-2a63-4f55-9a1e-6d3c2a1b5e01</Id>
+  <Version>0.1.0</Version>
+  <ProviderName>Analekh</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Analekh"/>
+  <Description DefaultValue="The analyst's record, kept for you: review change sets and assumptions beside your model."/>
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>

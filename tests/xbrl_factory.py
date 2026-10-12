@@ -105,3 +105,17 @@ def q2_instance(revenue: int = 1_000_000_000, **kw) -> bytes:
     q1 = pnl(900_000_000, 40_000_000, 720_000_000, 55_000_000)
     ytd = {k: q[k] + q1[k] for k in q}
     return build_instance(**Q2, values_q=q, values_ytd=ytd, values_instant=BS, **kw)
+
+
+def quarter_instance(
+    end: date, revenue: int, other: int = 0, expenses: int = 0, tax: int = 0
+) -> bytes:
+    """One standalone quarter (YTD contexts equal the quarter) for any quarter end."""
+    start_month = end.month - 2
+    start = date(
+        end.year if start_month > 0 else end.year - 1,
+        start_month if start_month > 0 else start_month + 12,
+        1,
+    )
+    q = pnl(revenue, other, expenses, tax)
+    return build_instance(q_start=start, q_end=end, ytd_start=start, values_q=q, values_instant=BS)

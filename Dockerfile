@@ -1,16 +1,21 @@
+# Application image: API, Celery workers and scheduler (design doc 22.1, Appendix G.1, G.8).
 FROM python:3.12-slim
 
+# Tesseract for scanned pages; headless LibreOffice Calc for recalculating workbooks.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tesseract-ocr libxml2 libxslt1.1 \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-eng libreoffice-calc-nogui libxml2 libxslt1.1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.4.30 /uv /usr/local/bin/uv
-
+RUN pip install --no-cache-dir uv
 WORKDIR /app
-COPY pyproject.toml README.md ./
-COPY t2r ./t2r
-COPY alembic.ini ./
-RUN uv pip install --system .
+COPY requirements.txt ./
+RUN uv pip install --system --no-cache -r requirements.txt
+COPY pyproject.toml README.md alembic.ini ./
+COPY analekh ./analekh
+RUN uv pip install --system --no-cache --no-deps .
 
+RUN useradd --create-home --uid 10001 analekh
+USER analekh
 EXPOSE 8000
-CMD ["uvicorn", "t2r.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "analekh.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

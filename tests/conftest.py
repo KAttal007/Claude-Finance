@@ -5,18 +5,19 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-TEST_DB = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/t2r")
+TEST_DB = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/analekh")
 
 
 @pytest.fixture(scope="session")
 def engine():
     """Real PostgreSQL + pgvector (docker compose up postgres). Skips DB tests when unreachable."""
-    from t2r.db.models import Base
+    from analekh.db.models import Base
 
     eng = create_engine(TEST_DB)
     try:
         with eng.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             conn.commit()
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"PostgreSQL not reachable at {TEST_DB}: {exc}")
@@ -40,6 +41,6 @@ def db(engine) -> Iterator[Session]:
 
 @pytest.fixture
 def store(tmp_path):
-    from t2r.ingest.storage import LocalStore
+    from analekh.ingest.storage import LocalStore
 
     return LocalStore(tmp_path / "objects")

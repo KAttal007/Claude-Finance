@@ -5,9 +5,9 @@ from openpyxl import load_workbook
 from pptx import Presentation
 from pptx.util import Inches
 
-from t2r.ib.comps import CompInputs, compute, summary_stats, to_xlsx
-from t2r.ib.pitch import refresh
-from t2r.ib.profile import ProfileData, build
+from analekh.ib.comps import CompInputs, compute, summary_stats, to_xlsx
+from analekh.ib.pitch import refresh
+from analekh.ib.profile import ProfileData, build
 
 CR = Decimal(10_000_000)
 
