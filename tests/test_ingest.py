@@ -5,13 +5,13 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from t2r.db.models import Company, Fact, FeedItem, Filing
-from t2r.ingest import http as http_mod
-from t2r.ingest.backfill import run_backfill
-from t2r.ingest.feeds import item_key, parse_rss, store_items
-from t2r.ingest.http import DisallowedHostError, PoliteClient
-from t2r.ingest.pipeline import classify_announcement, ingest_results_xbrl
-from t2r.ingest.resolver import match_company, normalise_name, taxonomy_for_sector
+from analekh.db.models import Company, Fact, FeedItem, Filing
+from analekh.ingest.backfill import run_backfill
+from analekh.ingest.feeds import item_key, parse_rss, store_items
+from analekh.ingest.http import DisallowedHostError, PoliteClient
+from analekh.ingest.linking import CompanyIndex, normalise_name
+from analekh.ingest.pipeline import classify_announcement, ingest_results_xbrl
+from analekh.universe.sectors import taxonomy_for_sector
 from tests.xbrl_factory import q1_instance, q2_instance
 
 RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel>
@@ -34,17 +34,20 @@ def test_parse_rss_and_item_key():
 
 
 def test_name_matching():
-    c = Company(id=1, nse_symbol="DEMOFIN", name="Demo Finance Limited")
+    c = Company(id=1, nse_symbol="DEMOFIN", name="Demo Finance Limited", isin="INE000D01011")
     other = Company(id=2, nse_symbol="ACME", name="Acme Industries Ltd")
+    index = CompanyIndex.build([c, other])
     assert normalise_name("Demo Finance Ltd.") == normalise_name("DEMO FINANCE LIMITED")
-    assert match_company("Demo Finance Limited", [c, other]) is c
-    assert match_company("ACME - results", [c, other]) is other
-    assert match_company("Totally Different Corp", [c, other]) is None
+    assert index.match("Demo Finance Limited") is c
+    assert index.match("ACME - results") is other
+    assert index.match("Results", "ISIN INE000D01011 quarter ended") is c
+    assert index.match("Totally Different Corp") is None
 
 
 def test_taxonomy_guess():
     assert taxonomy_for_sector("Banks") == "banking"
     assert taxonomy_for_sector("Financial Services", "NBFC") == "nbfc"
+    assert taxonomy_for_sector("Insurance") == "insurance"
     assert taxonomy_for_sector("Capital Goods") == "indas"
 
 
@@ -59,18 +62,17 @@ def test_client_refuses_other_hosts():
         PoliteClient().get("https://www.nseindia.com/api/anything")
 
 
-def test_client_retries_then_succeeds(monkeypatch):
-    monkeypatch.setattr(http_mod.time, "sleep", lambda s: None)
+def test_client_retries_then_succeeds():
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls["n"] += 1
         if calls["n"] < 3:
             return httpx.Response(503)
-        assert request.headers["User-Agent"].startswith("Ticker-to-Report")
+        assert request.headers["User-Agent"].startswith("Analekh")
         return httpx.Response(200, content=b"ok", headers={"ETag": "abc"})
 
-    client = PoliteClient(transport=httpx.MockTransport(handler))
+    client = PoliteClient(transport=httpx.MockTransport(handler), backoff_base=0)
     result = client.get("https://nsearchives.nseindia.com/content/RSS/Financial_Results.xml")
     assert result.content == b"ok" and result.etag == "abc" and calls["n"] == 3
 
@@ -80,7 +82,7 @@ def test_client_retries_then_succeeds(monkeypatch):
 
 @pytest.fixture
 def company(db):
-    c = Company(nse_symbol="DEMOFIN", name="Demo Finance Limited", is_tracked=True)
+    c = Company(nse_symbol="DEMOFIN", name="Demo Finance Limited")
     db.add(c)
     db.flush()
     return c

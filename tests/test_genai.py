@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from t2r.genai.calc import CalcError, calc
-from t2r.genai.grounding import check, extract_numbers
-from t2r.genai.reports import run_report
+from analekh.genai.calc import CalcError, calc
+from analekh.genai.grounding import check, extract_numbers
+from analekh.genai.reports import run_report
 
 
 def test_calc_is_exact_and_safe():
@@ -78,7 +78,7 @@ class FakeClaude:
 
 
 def test_report_loop_runs_tools_and_grounds_output():
-    from t2r.genai.tools import ToolExecutor
+    from analekh.genai.tools import ToolExecutor
 
     executor = ToolExecutor(session=None)  # calc needs no database
     good = run_report(

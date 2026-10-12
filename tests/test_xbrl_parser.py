@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from t2r.xbrl.parser import dims_hash, parse_instance, period_type
+from analekh.xbrl.parser import dims_hash, parse_instance, period_type
 from tests.xbrl_factory import q2_instance
 
 

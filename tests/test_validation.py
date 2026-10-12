@@ -1,8 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
-from t2r.validate.rules import HistoryFact, KpiValue, ValidationContext, validate
-from t2r.xbrl.parser import parse_instance
+from analekh.validate.rules import HistoryFact, KpiValue, ValidationContext, validate
+from analekh.xbrl.parser import parse_instance
 from tests.xbrl_factory import BS, Q2, build_instance, pnl, q2_instance
 
 Q1_HISTORY = [

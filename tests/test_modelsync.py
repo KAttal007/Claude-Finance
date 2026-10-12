@@ -6,24 +6,25 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from t2r.modelsync.apply import ApprovedItem, apply_headless
-from t2r.modelsync.changeset import SourceValue, build_change_set, quarter_start
-from t2r.modelsync.dependency import DependencyGraph, references
-from t2r.modelsync.mapping import apply_transform, load_mapping, parse_source
-from t2r.modelsync.workbook import fiscal_label
+from analekh.facts import SourceValue, quarter_start
+from analekh.modelsync.apply import ApprovedItem, apply_headless
+from analekh.modelsync.changeset import build_change_set
+from analekh.workbook.dependency import DependencyGraph, references
+from analekh.workbook.mapping import apply_transform, load_mapping, parse_source
+from analekh.workbook.periods import fiscal_label
 
 MAPPING = (Path(__file__).parent.parent / "mappings" / "example_quarterly.yaml").read_text()
 
 
 def make_workbook() -> Workbook:
-    """Data sheet: B=Q1FY27 (A), C=Q2FY27 (E, formulas), D=Q3FY27 (E). Model sheet has drivers."""
+    """Data: B=Q1FY27 (A), C=Q2FY27 (E, formulas), D=Q3FY27 (E). Drivers sheet holds drivers."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Data"
     rows = [
         ["Period", "Q1FY27", "Q2FY27", "Q3FY27"],
         ["A/E", "A", "E", "E"],
-        ["Revenue from operations", 90, "=B3*(1+Model!C2)", "=C3*(1+Model!D2)"],
+        ["Revenue from operations", 90, "=B3*(1+Drivers!C2)", "=C3*(1+Drivers!D2)"],
         ["Other income", 4, 4, 4],
         ["Finance costs", 30, "=B5*1.02", "=C5*1.02"],
         ["PAT", 16.5, "=C3*0.18", "=D3*0.18"],
@@ -33,7 +34,7 @@ def make_workbook() -> Workbook:
     ]
     for r in rows:
         ws.append(r)
-    model = wb.create_sheet("Model")
+    model = wb.create_sheet("Drivers")
     model.append(["Driver", "Q1FY27", "Q2FY27", "Q3FY27"])
     model.append(["Growth", 0.1, 0.1, 0.05])
     model.append(["Yield assumption", 0.18, 0.18, 0.18])
@@ -83,8 +84,8 @@ def test_fiscal_labels():
 
 
 def test_dependency_graph():
-    refs, volatile = references("=SUM('Data'!C3:D3)+Model!B2", "Summary")
-    assert ("Data", "C3") in refs and ("Data", "D3") in refs and ("Model", "B2") in refs
+    refs, volatile = references("=SUM('Data'!C3:D3)+Drivers!B2", "Summary")
+    assert ("Data", "C3") in refs and ("Data", "D3") in refs and ("Drivers", "B2") in refs
     assert not volatile
     graph = DependencyGraph(make_workbook())
     down = graph.downstream([("Data", "C3")])
@@ -105,14 +106,14 @@ def test_change_set_proposal():
     items = {(i.kind, i.sheet, i.cell): i for i in proposal.items}
 
     rev = items[("actual_write", "Data", "C3")]
-    assert Decimal(rev.new_value) == 100 and rev.formula_before == "=B3*(1+Model!C2)"
+    assert Decimal(rev.new_value) == 100 and rev.formula_before == "=B3*(1+Drivers!C2)"
     assert rev.source_fact_id == 11
     assert ("actual_write", "Data", "C4") not in items  # unchanged value: no item
     assert Decimal(items[("actual_write", "Data", "C7")].new_value) == 83_500  # KPI, no scaling
     assert items[("roll_forward", "Data", "C2")].new_value == "A"
-    assert items[("roll_forward", "Data", "E3")].formula_after == "=D3*(1+Model!E2)"
+    assert items[("roll_forward", "Data", "E3")].formula_after == "=D3*(1+Drivers!E2)"
     assert items[("label_shift", "Data", "E1")].new_value == "Q4FY27"
-    assert items[("assumption_suggestion", "Model", "D3")].new_value == "0.172"
+    assert items[("assumption_suggestion", "Drivers", "D3")].new_value == "0.172"
 
     assert any("Finance costs" in w for w in proposal.warnings)  # no fact for FinanceCosts
     assert any("Hardcoded estimate" in w and "D7" in w for w in proposal.warnings)
@@ -136,10 +137,10 @@ def test_apply_headless_writes_only_given_items():
         [
             ApprovedItem("actual_write", "Data", "C3", "100"),
             ApprovedItem("roll_forward", "Data", "C2", "A"),
-            ApprovedItem("roll_forward", "Data", "E3", None, "=D3*(1+Model!E2)"),
+            ApprovedItem("roll_forward", "Data", "E3", None, "=D3*(1+Drivers!E2)"),
         ],
     )
     ws = load_workbook(io.BytesIO(out))["Data"]
     assert ws["C3"].value == 100 and ws["C2"].value == "A"
-    assert ws["E3"].value == "=D3*(1+Model!E2)"
+    assert ws["E3"].value == "=D3*(1+Drivers!E2)"
     assert ws["C5"].value == "=B5*1.02"  # untouched

@@ -1,0 +1,44 @@
+# Production environment (design doc 22.5): pulled and started by the pipeline on the self-hosted
+# `india` runner. IMAGE_TAG is the commit SHA built and scanned in the same pipeline.
+# Hosted deployments use a managed S3 service and Valkey instead of MinIO and Redis
+# (Appendix G.9): set MINIO_ENDPOINT and REDIS_URL in /etc/analekh/production.env.
+x-app: &app
+  image: ${CI_REGISTRY_IMAGE:-registry.gitlab.com/kaushal-self/kaushal-analekh}:${IMAGE_TAG:?set IMAGE_TAG}
+  env_file: /etc/analekh/production.env
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    env_file: /etc/analekh/production.env
+    volumes: [pgdata:/var/lib/postgresql/data]
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: alembic upgrade head
+    restart: "no"
+    depends_on: [postgres]
+
+  api:
+    <<: *app
+    command: uvicorn analekh.api.main:app --host 0.0.0.0 --port 8000
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on: [postgres, valkey, migrate]
+
+  worker:
+    <<: *app
+    command: celery -A analekh.jobs worker -l info
+    depends_on: [postgres, valkey]
+
+  beat:
+    <<: *app
+    command: celery -A analekh.jobs beat -l info
+    depends_on: [valkey]
+
+volumes:
+  pgdata:
