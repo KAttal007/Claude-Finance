@@ -1,0 +1,38 @@
+# Secrets
+.env
+
+# Raw exchange data must never be committed (design doc section 17)
+data/
+import/
+*.xbrl
+/storage/
+
+# Generated outputs
+out/
+*.xlsx
+*.docx
+*.pptx
+!tests/fixtures/**/*.xlsx
+!t2r/ib/templates/*.pptx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+web/node_modules/
+web/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
